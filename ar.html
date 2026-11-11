@@ -11,6 +11,11 @@
       padding: 10px 14px; background: rgba(0,0,0,.6); color: #fff;
       text-align: center; font-size: 14px;
     }
+    #indoor {
+      position: fixed; bottom: 84px; left: 50%; transform: translateX(-50%);
+      z-index: 10; padding: 12px 22px; border: 0; border-radius: 28px;
+      background: #ffeb3b; color: #000; font-size: 15px; font-weight: 600;
+    }
     #switch {
       position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
       z-index: 10; padding: 14px 26px; border: 0; border-radius: 28px;
@@ -24,6 +29,7 @@
 <body>
   <div id="info">Разрешите камеру и геолокацию. Лучше работает на улице.</div>
   <button id="switch">Сменить фигуру</button>
+  <button id="indoor">Фигура передо мной</button>
 
   <a-scene vr-mode-ui="enabled: false"
            arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false"
@@ -73,9 +79,30 @@
       renderStatic.place = place;
     }
 
+    // Режим для помещений: фигура закреплена перед камерой (без GPS)
+    let indoorEntity = null;
+    function renderIndoor() {
+      if (indoorEntity) indoorEntity.remove();
+      const m = MODELS[modelIndex];
+      const el = document.createElement(m.tag);
+      Object.entries(m.attrs).forEach(([k, v]) => el.setAttribute(k, v));
+      el.setAttribute('scale', '0.25 0.25 0.25');
+      el.setAttribute('position', '0 0 -3');
+      el.setAttribute('animation',
+        'property: rotation; to: 0 360 0; dur: 8000; easing: linear; loop: true');
+      cam.appendChild(el);
+      indoorEntity = el;
+    }
+
+    document.getElementById('indoor').addEventListener('click', () => {
+      renderIndoor();
+      setStatus('Фигура перед камерой: ' + MODELS[modelIndex].label);
+    });
+
     document.getElementById('switch').addEventListener('click', () => {
       modelIndex = (modelIndex + 1) % MODELS.length;
       if (renderStatic.place) renderStatic(renderStatic.place);
+      if (indoorEntity) renderIndoor();
       setStatus('Фигура: ' + MODELS[modelIndex].label);
     });
 
