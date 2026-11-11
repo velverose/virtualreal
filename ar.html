@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Location-Based AR (AR.js + A-Frame)</title>
+  <style>
+    body { margin: 0; overflow: hidden; font-family: sans-serif; }
+    #info {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+      padding: 10px 14px; background: rgba(0,0,0,.6); color: #fff;
+      text-align: center; font-size: 14px;
+    }
+    #switch {
+      position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+      z-index: 10; padding: 14px 26px; border: 0; border-radius: 28px;
+      background: #fff; color: #000; font-size: 16px; font-weight: 600;
+    }
+  </style>
+
+  <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+  <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar-nft.js"></script>
+</head>
+<body>
+  <div id="info">Разрешите камеру и геолокацию. Лучше работает на улице.</div>
+  <button id="switch">Сменить фигуру</button>
+
+  <a-scene vr-mode-ui="enabled: false"
+           arjs="sourceType: webcam; videoTexture: true; debugUIEnabled: false"
+           renderer="antialias: true; alpha: true">
+    <a-camera id="cam" gps-new-camera="gpsMinDistance: 5"></a-camera>
+  </a-scene>
+
+  <script>
+    // Статичное место: если null, фигура появится в ~25 м к северу от вас.
+    // Свои координаты: { latitude: 41.89259, longitude: 12.48982 }
+    const STATIC_PLACE = null;
+    const RADIUS = 300;      // радиус поиска мест (м)
+    const MAX_PLACES = 15;
+
+    const MODELS = [
+      { label: 'Куб',   tag: 'a-box',    attrs: { color: '#e53935', width: 4, height: 4, depth: 4 } },
+      { label: 'Сфера', tag: 'a-sphere', attrs: { color: '#1e88e5', radius: 2.5 } },
+      { label: 'Конус', tag: 'a-cone',   attrs: { color: '#43a047', 'radius-bottom': 2.5, height: 5 } },
+      { label: 'Тор',   tag: 'a-torus',  attrs: { color: '#fdd835', radius: 2.5, 'radius-tubular': 0.7 } }
+    ];
+    let modelIndex = 0;
+    let staticEntity = null;
+
+    const scene = document.querySelector('a-scene');
+    const cam = document.getElementById('cam');
+    const info = document.getElementById('info');
+    function setStatus(t) { info.textContent = t; }
+
+    function offset(lat, lon, northM, eastM) {
+      return {
+        latitude: lat + northM / 111320,
+        longitude: lon + eastM / (111320 * Math.cos(lat * Math.PI / 180))
+      };
+    }
+
+    function renderStatic(place) {
+      if (staticEntity) staticEntity.remove();
+      const m = MODELS[modelIndex];
+      const el = document.createElement(m.tag);
+      Object.entries(m.attrs).forEach(([k, v]) => el.setAttribute(k, v));
+      el.setAttribute('gps-new-entity-place',
+        `latitude: ${place.latitude}; longitude: ${place.longitude}`);
+      el.setAttribute('animation',
+        'property: rotation; to: 0 360 0; dur: 8000; easing: linear; loop: true');
+      scene.appendChild(el);
+      staticEntity = el;
+      renderStatic.place = place;
+    }
+
+    document.getElementById('switch').addEventListener('click', () => {
+      modelIndex = (modelIndex + 1) % MODELS.length;
+      if (renderStatic.place) renderStatic(renderStatic.place);
+      setStatus('Фигура: ' + MODELS[modelIndex].label);
+    });
+
+    async function loadNearbyPlaces(lat, lon) {
+      const q = `[out:json][timeout:20];
+        node(around:${RADIUS},${lat},${lon})["name"]["amenity"];
+        out ${MAX_PLACES};`;
+      try {
+        const res = await fetch('https://overpass-api.de/api/interpreter?data=' + encodeURIComponent(q));
+        const data = await res.json();
+        data.elements.slice(0, MAX_PLACES).forEach(p => {
+          const wrap = document.createElement('a-entity');
+          wrap.setAttribute('gps-new-entity-place', `latitude: ${p.lat}; longitude: ${p.lon}`);
+
+          const pin = document.createElement('a-sphere');
+          pin.setAttribute('radius', 1.2);
+          pin.setAttribute('color', '#e53935');
+          pin.setAttribute('position', '0 4 0');
+
+          const label = document.createElement('a-text');
+          label.setAttribute('value', p.tags.name);
+          label.setAttribute('align', 'center');
+          label.setAttribute('color', '#ffffff');
+          label.setAttribute('scale', '20 20 20');
+          label.setAttribute('position', '0 8 0');
+
+          wrap.appendChild(pin);
+          wrap.appendChild(label);
+          scene.appendChild(wrap);
+        });
+        setStatus(`Найдено мест рядом: ${data.elements.length}. Смотрите вокруг через камеру.`);
+      } catch (e) {
+        setStatus('Не удалось загрузить места: ' + e.message);
+      }
+    }
+
+    let started = false;
+    cam.addEventListener('gps-camera-update-position', (e) => {
+      if (started) return;
+      started = true;
+      const { latitude, longitude } = e.detail.position;
+      renderStatic(STATIC_PLACE || offset(latitude, longitude, 25, 0));
+      loadNearbyPlaces(latitude, longitude);
+    });
+
+    window.addEventListener('gps-camera-error', () => {
+      setStatus('Нет доступа к GPS. Включите геолокацию и откройте страницу по HTTPS.');
+    });
+  </script>
+</body>
+</html>
